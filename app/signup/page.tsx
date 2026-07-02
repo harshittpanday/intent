@@ -1,17 +1,122 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createUserWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/app/lib/firebase";
+import { auth, db } from "@/app/lib/firebase";
+import {
+  collection,
+  doc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from "firebase/firestore";
 
 export default function SignupPage() {
+  const router = useRouter();
+
+  const [displayName, setDisplayName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  const [checkingUsername, setCheckingUsername] = useState(false);
+  const [usernameStatus, setUsernameStatus] = useState("");
+
+  // Live username check
+  useEffect(() => {
+    if (username.length < 3) {
+      setUsernameStatus("");
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setCheckingUsername(true);
+
+      try {
+        const q = query(
+          collection(db, "users"),
+          where("username", "==", username.toLowerCase())
+        );
+
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) {
+          setUsernameStatus("available");
+        } else {
+          setUsernameStatus("taken");
+        }
+      } catch (error) {
+        console.error(error);
+      }
+
+      setCheckingUsername(false);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [username]);
+
   const handleSignup = async () => {
+    if (
+      !displayName ||
+      !username ||
+      !email ||
+      !password
+    ) {
+      alert("Please fill all fields.");
+      return;
+    }
+
+    if (usernameStatus === "taken") {
+      alert("Username is already taken.");
+      return;
+    }
+
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
-      alert("🎉 Account created successfully!");
+      // Double-check username before creating account
+      const usernameQuery = query(
+        collection(db, "users"),
+        where("username", "==", username.toLowerCase())
+      );
+
+      const usernameSnapshot = await getDocs(usernameQuery);
+
+      if (!usernameSnapshot.empty) {
+        alert("Username is already taken.");
+        return;
+      }
+
+      const userCredential =
+        await createUserWithEmailAndPassword(
+          auth,
+          email,
+          password
+        );
+
+      const user = userCredential.user;
+
+      await setDoc(doc(db, "users", user.uid), {
+      uid: user.uid,
+      displayName,
+      username: username.toLowerCase(),
+      email,
+      bio: "",
+      avatar: "",
+      createdAt: serverTimestamp(),
+     });
+
+console.log("✅ Signup complete");
+
+router.replace(`/@${username.toLowerCase()}`);
+// or use router.replace("/") if you haven't built profiles yet
+
+return;
+
+
+
+      router.push("/");
     } catch (error: any) {
       alert(error.message);
     }
@@ -27,6 +132,44 @@ export default function SignupPage() {
         <p className="text-slate-400 mb-8">
           Join INTENT and start exploring topics.
         </p>
+
+        <input
+          type="text"
+          placeholder="Display Name"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          className="w-full p-3 rounded-lg bg-slate-800 text-white mb-4 outline-none focus:ring-2 focus:ring-blue-500"
+        />
+
+        <input
+          type="text"
+          placeholder="Username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value.toLowerCase())}
+          className="w-full p-3 rounded-lg bg-slate-800 text-white outline-none focus:ring-2 focus:ring-blue-500"
+        />
+
+        <div className="mt-2 mb-4 h-5">
+          {checkingUsername && (
+            <p className="text-yellow-400 text-sm">
+              Checking username...
+            </p>
+          )}
+
+          {!checkingUsername &&
+            usernameStatus === "available" && (
+              <p className="text-green-400 text-sm">
+                ✅ Username available
+              </p>
+            )}
+
+          {!checkingUsername &&
+            usernameStatus === "taken" && (
+              <p className="text-red-400 text-sm">
+                ❌ Username already taken
+              </p>
+            )}
+        </div>
 
         <input
           type="email"
